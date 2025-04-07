@@ -474,7 +474,7 @@ export default function Books() {
               id="ai_prompt"
               value={aiPrompt}
               onChange={e => setAiPrompt(e.target.value)}
-              placeholder="E.g. Which books are about science fiction?"
+              placeholder="E.g. What's available? How many are there? What are the titles? Who are the authors?"
               className="flex-grow px-3 py-2 border border-gray-300 rounded-l-md shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               disabled={isLoadingAi}
             />
