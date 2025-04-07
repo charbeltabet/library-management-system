@@ -1,95 +1,56 @@
-# Welcome to React Router + Cloudflare Workers!
+# Library Management System
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/templates/tree/main/react-router-starter-template)
-
-![React Router Starter Template Preview](https://imagedelivery.net/wSMYJvS3Xw-n339CbDyDIA/bfdc2f85-e5c9-4c92-128b-3a6711249800/public)
-
-<!-- dash-content-start -->
-
-A modern, production-ready template for building full-stack React applications using React Router.
+This is a React-based Library Management System built as an assignment project. It provides a comprehensive interface for managing books in a library, including features for searching, sorting, pagination, and CRUD (Create, Read, Update, Delete) operations.
 
 ## Features
 
-- 🚀 Server-side rendering
-- ⚡️ Hot Module Replacement (HMR)
-- 📦 Asset bundling and optimization
-- 🔄 Data loading and mutations
-- 🔒 TypeScript by default
-- 🎉 TailwindCSS for styling
-- 📖 [React Router docs](https://reactrouter.com/)
+### Book Management
+- **Create**: Add new books with title and author information
+- **Read**: View list of all books with their details
+- **Update**: Edit existing book titles and authors
+- **Delete**: Remove books from the system
+- **Check Out/In**: Manage book availability status
 
-<!-- dash-content-end -->
+### Search and Filtering
+- Search books by title, author, or all fields
+- Auto-applying filters with debounced input (300ms delay)
+- Sort by multiple fields (title, author, status, creation date)
+- Ascending/descending sort direction
 
-## Getting Started
+### Pagination
+- Displays 10 books per page
+- Shows total books and pages
+- Navigation between pages
 
-Outside of this repo, you can start a new project with this template using [C3](https://developers.cloudflare.com/pages/get-started/c3/) (the `create-cloudflare` CLI):
+### Technical Features
+- Uses Cloudflare D1 Database for data persistence
+- Implements React Router for data loading and actions
+- Debounced search inputs for better performance
+- Responsive table design
+- Error handling for database operations
 
-```bash
-npm create cloudflare@latest -- --template=cloudflare/templates/react-router-starter-template
-```
+## Tech Stack
+- React with TypeScript
+- React Router
+- Cloudflare D1 Database
+- Tailwind CSS for styling
 
-A live public deployment of this template is available at [https://react-router-starter-template.templates.workers.dev](https://react-router-starter-template.templates.workers.dev)
+## Project Structure
 
-### Installation
+### Main Components
+- `loader`: Handles data fetching with search, sort, and pagination parameters
+- `action`: Manages CRUD operations and book status updates
+- `Books` component: Main UI component with table and forms
+- Custom `useDebounce` hook for search optimization
 
-Install the dependencies:
-
-```bash
-npm install
-```
-
-### Development
-
-Start the development server with HMR:
-
-```bash
-npm run dev
-```
-
-Your application will be available at `http://localhost:5173`.
-
-## Typegen
-
-Generate types for your Cloudflare bindings in `wrangler.json`:
-
-```sh
-npm run typegen
-```
-
-## Building for Production
-
-Create a production build:
-
-```bash
-npm run build
-```
-
-## Deployment
-
-If you don't have a Cloudflare account, [create one here](https://dash.cloudflare.com/sign-up)! Go to your [Workers dashboard](https://dash.cloudflare.com/?to=%2F%3Aaccount%2Fworkers-and-pages) to see your [free custom Cloudflare Workers subdomain](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/) on `*.workers.dev`.
-
-Once that's done, you can deploy your app:
-
-```sh
-npm run deploy
-```
-
-To deploy a preview URL:
-
-```sh
-npx wrangler versions upload
-```
-
-You can then promote a version to production after verification or roll it out progressively.
-
-```sh
-npx wrangler versions deploy
-```
-
-## Styling
-
-This template comes with [Tailwind CSS](https://tailwindcss.com/) already configured for a simple default starting experience. You can use whatever CSS framework you prefer.
-
----
-
-Built with ❤️ using React Router.
+### Data Model
+```typescript
+interface Book {
+  id: number;
+  title: string;
+  author: string;
+  is_checked_out: number;
+  last_checked_out_at: string | null;
+  last_checked_in_at: string | null;
+  created_at: string;
+}
