@@ -16,16 +16,17 @@
     "dash": true
   },
   "dependencies": {
-    "@react-router/node": "7.4.1",
-    "@react-router/serve": "7.4.1",
+    "@react-router/node": "7.5.0",
+    "@react-router/serve": "7.5.0",
     "isbot": "5.1.25",
     "react": "19.0.0",
     "react-dom": "19.0.0",
-    "react-router": "7.4.1"
+    "react-router": "7.5.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250407.0",
-    "@react-router/dev": "7.4.1",
+    "@react-router/dev": "7.5.0",
+    "@react-router/fs-routes": "7.5.0",
     "@tailwindcss/vite": "4.1.1",
     "@types/node": "22.14.0",
     "@types/react": "19.0.1",
