@@ -13,6 +13,9 @@ interface Book {
 
 interface Env {
   DB: D1Database;
+  AI: any; // Add AI to the environment interface
+  CLOUDFLARE_ACCOUNT_ID: string; // From wrangler secret
+  CLOUDFLARE_AI_TOKEN: string;    // From wrangler secret
 }
 
 interface LoaderContext {
@@ -33,6 +36,7 @@ export const loader = async ({ context, request }: { context: LoaderContext, req
     const sortBy = url.searchParams.get("sort") || "created_at";
     const sortDir = url.searchParams.get("dir") || "desc";
     const page = parseInt(url.searchParams.get("page") || "1");
+    const aiPrompt = url.searchParams.get("ai_prompt") || "";
     const limit = 10;
     const offset = (page - 1) * limit;
 
@@ -80,6 +84,65 @@ export const loader = async ({ context, request }: { context: LoaderContext, req
     const totalBooks = countResponse?.count || 0;
     const totalPages = Math.ceil(totalBooks / limit);
 
+    // If there's an AI prompt, we need to get all books for context
+    let aiResponse = null;
+    if (aiPrompt) {
+      // Get all books for AI context
+      const allBooksStmt = DB.prepare("SELECT * FROM books");
+      const allBooksResponse = await allBooksStmt.all();
+      const allBooks = allBooksResponse.results;
+
+      // Format books data for AI context
+      const booksContext = allBooks.map((book: Book, index: number) =>
+        `${index + 1}. "${book.title}" by ${book.author} - ${book.is_checked_out ? 'Checked Out' : 'Available'}`
+      ).join('\n');
+
+      const systemPrompt = "You are an assistant for a library management system. Help users find and understand information about the available books.";
+
+      try {
+        // These values now come from Cloudflare secrets
+        const { CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_AI_TOKEN } = context.cloudflare.env;
+
+        if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_AI_TOKEN) {
+          throw new Error('Missing required Cloudflare credentials');
+        }
+
+        const response = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/meta/llama-3-8b-instruct`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${CLOUDFLARE_AI_TOKEN}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              messages: [
+                {
+                  role: "system",
+                  content: systemPrompt
+                },
+                {
+                  role: "user",
+                  content: `Here is the list of books in our library:\n\n${booksContext}\n\nUser question: ${aiPrompt}`
+                }
+              ]
+            })
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`AI API returned ${response.status}`);
+        }
+
+        const result = await response.json();
+        aiResponse = result.result?.response || "Sorry, I couldn't process your question at this time.";
+        console.log('AI response:', aiResponse);
+      } catch (error) {
+        console.error('AI error:', error);
+        aiResponse = "Sorry, I couldn't process your question at this time.";
+      }
+    }
+
     return {
       books,
       pagination: {
@@ -92,7 +155,8 @@ export const loader = async ({ context, request }: { context: LoaderContext, req
         field: searchField,
         sort: sortBy,
         dir: sortDir
-      }
+      },
+      aiResponse // Include AI response in the loader data
     };
   } catch (error) {
     console.error('Database error:', error);
@@ -100,6 +164,7 @@ export const loader = async ({ context, request }: { context: LoaderContext, req
       books: [],
       pagination: { currentPage: 1, totalPages: 0, totalBooks: 0 },
       filters: { search: "", field: "all", sort: "created_at", dir: "desc" },
+      aiResponse: null,
       error: 'Failed to load books'
     };
   }
@@ -203,7 +268,7 @@ const SORT_OPTIONS = [
 ];
 
 export default function Books() {
-  const { books, pagination, filters, error } = useLoaderData<typeof loader>();
+  const { books, pagination, filters, aiResponse, error } = useLoaderData<typeof loader>();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Track which book is being edited
@@ -336,6 +401,77 @@ export default function Books() {
     setIsCreatingBook(false);
   };
 
+  // Add state for AI prompt
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [isLoadingAi, setIsLoadingAi] = useState(false);
+
+  // Add state for tracking if the AI request was submitted
+  const [isAiSubmitted, setIsAiSubmitted] = useState(false);
+
+  // Update AI prompt submission handler
+  const handleAiSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!aiPrompt.trim()) return;
+
+    setIsLoadingAi(true);
+    setIsAiSubmitted(true);
+    const newParams = new URLSearchParams(searchParams);
+    newParams.set("ai_prompt", aiPrompt.trim());
+    setSearchParams(newParams);
+  };
+
+  // Reset loading state when AI response changes or when the prompt parameter is removed
+  useEffect(() => {
+    if (aiResponse || !searchParams.get("ai_prompt")) {
+      setIsLoadingAi(false);
+      if (isAiSubmitted && !searchParams.get("ai_prompt")) {
+        setIsAiSubmitted(false);
+        setAiPrompt(""); // Reset the input when the response is received
+      }
+    }
+  }, [aiResponse, searchParams]);
+
+  // Update AI section JSX
+  const aiSection = (
+    <div className="mb-6 p-4 bg-indigo-50 rounded">
+      <h2 className="text-lg font-semibold mb-2">AI Book Assistant</h2>
+      <form onSubmit={handleAiSubmit} className="space-y-3">
+        <div>
+          <label htmlFor="ai_prompt" className="block text-sm font-medium text-gray-700 mb-1">
+            Ask a question about the books
+          </label>
+          <div className="flex">
+            <input
+              type="text"
+              id="ai_prompt"
+              value={aiPrompt}
+              onChange={e => setAiPrompt(e.target.value)}
+              placeholder="E.g. Which books are about science fiction?"
+              className="flex-grow px-3 py-2 border border-gray-300 rounded-l-md shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              disabled={isLoadingAi}
+            />
+            <button
+              type="submit"
+              disabled={isLoadingAi || !aiPrompt.trim()}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-r-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-indigo-300"
+            >
+              {isLoadingAi ? "Thinking..." : "Ask"}
+            </button>
+          </div>
+        </div>
+      </form>
+
+      {(isLoadingAi || aiResponse) && (
+        <div className="mt-3 p-3 bg-white rounded shadow">
+          <h3 className="text-sm font-medium text-gray-700 mb-1">Response:</h3>
+          <div className="prose prose-sm max-w-none">
+            {isLoadingAi ? "Thinking..." : aiResponse}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   if (error) {
     return <div className="p-4 text-red-500">{error}</div>;
   }
@@ -428,6 +564,9 @@ export default function Books() {
           Filters apply automatically as you type
         </div>
       </div>
+
+      {/* AI Assistant Section */}
+      {aiSection}
 
       {/* Books Table */}
       <div className="overflow-x-auto">
@@ -625,7 +764,10 @@ export default function Books() {
                           </form>
                         )}
 
-                        <form method="post" onSubmit={(e) => confirm('Are you sure you want to delete this book?') || e.preventDefault()}>
+                        <form
+                          method="post"
+                          onSubmit={(e) => confirm('Are you sure you want to delete this book?') || e.preventDefault()}
+                        >
                           <input type="hidden" name="bookId" value={book.id} />
                           <button
                             type="submit"
@@ -646,14 +788,31 @@ export default function Books() {
         </table>
       </div>
 
-      {pagination.currentPage < pagination.totalPages && (
-        <Link
-          to={getPaginationLink(pagination.currentPage + 1)}
-          className="px-3 py-1 border rounded text-sm text-gray-700 hover:bg-gray-50"
-        >
-          Next
-        </Link>
-      )}
+      {/* Pagination */}
+      <div className="mt-4 flex justify-between items-center">
+        <div className="text-sm text-gray-700">
+          Showing <span className="font-medium">{books.length}</span> of{" "}
+          <span className="font-medium">{pagination.totalBooks}</span> books
+        </div>
+        <div className="flex space-x-2">
+          {pagination.currentPage > 1 && (
+            <Link
+              to={getPaginationLink(pagination.currentPage - 1)}
+              className="px-3 py-1 border rounded text-sm text-gray-700 hover:bg-gray-50"
+            >
+              Previous
+            </Link>
+          )}
+          {pagination.currentPage < pagination.totalPages && (
+            <Link
+              to={getPaginationLink(pagination.currentPage + 1)}
+              className="px-3 py-1 border rounded text-sm text-gray-700 hover:bg-gray-50"
+            >
+              Next
+            </Link>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

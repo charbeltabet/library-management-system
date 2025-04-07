@@ -19,7 +19,7 @@
 	],
 	"assets": {
 		"directory": "./build/client"
-	}
+	},
 }
 /**
 	 * Smart Placement
