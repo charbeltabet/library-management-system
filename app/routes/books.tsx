@@ -13,9 +13,9 @@ interface Book {
 
 interface Env {
   DB: D1Database;
-  AI: any; // Add AI to the environment interface
-  CLOUDFLARE_ACCOUNT_ID: string; // From wrangler secret
-  CLOUDFLARE_AI_TOKEN: string;    // From wrangler secret
+  AI: any;
+  CLOUDFLARE_ACCOUNT_ID?: string;
+  CLOUDFLARE_AI_TOKEN?: string;
 }
 
 interface LoaderContext {
@@ -87,59 +87,87 @@ export const loader = async ({ context, request }: { context: LoaderContext, req
     // If there's an AI prompt, we need to get all books for context
     let aiResponse = null;
     if (aiPrompt) {
-      // Get all books for AI context
-      const allBooksStmt = DB.prepare("SELECT * FROM books");
-      const allBooksResponse = await allBooksStmt.all();
-      const allBooks = allBooksResponse.results;
-
-      // Format books data for AI context
-      const booksContext = allBooks.map((book: Book, index: number) =>
-        `${index + 1}. "${book.title}" by ${book.author} - ${book.is_checked_out ? 'Checked Out' : 'Available'}`
-      ).join('\n');
-
-      const systemPrompt = "You are an assistant for a library management system. Help users find and understand information about the available books.";
-
       try {
-        // These values now come from Cloudflare secrets
-        const { CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_AI_TOKEN } = context.cloudflare.env;
+        const { CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_AI_TOKEN, AI } = context.cloudflare.env;
 
+        // Check if we have the required credentials
         if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_AI_TOKEN) {
-          throw new Error('Missing required Cloudflare credentials');
+          console.warn('Missing Cloudflare credentials for AI');
+          throw new Error('AI service not configured');
         }
 
-        const response = await fetch(
-          `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/meta/llama-3-8b-instruct`,
-          {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${CLOUDFLARE_AI_TOKEN}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              messages: [
-                {
-                  role: "system",
-                  content: systemPrompt
-                },
-                {
-                  role: "user",
-                  content: `Here is the list of books in our library:\n\n${booksContext}\n\nUser question: ${aiPrompt}`
-                }
-              ]
-            })
+        // Verify AI binding is available
+        if (!AI) {
+          console.warn('AI binding not available');
+          throw new Error('AI service not configured');
+        }
+
+        // Get all books for AI context
+        const allBooksStmt = DB.prepare("SELECT * FROM books");
+        const allBooksResponse = await allBooksStmt.all();
+        const allBooks = allBooksResponse.results;
+
+        const booksContext = allBooks.map((book: Book, index: number) =>
+          `${index + 1}. "${book.title}" by ${book.author} - ${book.is_checked_out ? 'Checked Out' : 'Available'}`
+        ).join('\n');
+
+        // Try using the AI binding first
+        try {
+          const aiResult = await AI.run('@cf/meta/llama-3-8b-instruct', {
+            messages: [
+              {
+                role: "system",
+                content: "You are an assistant for a library management system. Help users find and understand information about the available books."
+              },
+              {
+                role: "user",
+                content: `Here is the list of books in our library:\n\n${booksContext}\n\nUser question: ${aiPrompt}`
+              }
+            ]
+          });
+          aiResponse = aiResult.response;
+        } catch (aiBindingError) {
+          console.warn('AI binding failed, falling back to API:', aiBindingError);
+
+          // Fallback to direct API call
+          const response = await fetch(
+            `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/meta/llama-3-8b-instruct`,
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${CLOUDFLARE_AI_TOKEN}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                messages: [
+                  {
+                    role: "system",
+                    content: "You are an assistant for a library management system. Help users find and understand information about the available books."
+                  },
+                  {
+                    role: "user",
+                    content: `Here is the list of books in our library:\n\n${booksContext}\n\nUser question: ${aiPrompt}`
+                  }
+                ]
+              })
+            }
+          );
+
+          if (!response.ok) {
+            throw new Error(`AI API returned ${response.status}`);
           }
-        );
 
-        if (!response.ok) {
-          throw new Error(`AI API returned ${response.status}`);
+          const result = await response.json();
+          aiResponse = result.result?.response;
         }
 
-        const result = await response.json();
-        aiResponse = result.result?.response || "Sorry, I couldn't process your question at this time.";
-        console.log('AI response:', aiResponse);
+        if (!aiResponse) {
+          throw new Error('No response from AI service');
+        }
+
       } catch (error) {
         console.error('AI error:', error);
-        aiResponse = "Sorry, I couldn't process your question at this time.";
+        aiResponse = "Sorry, I couldn't process your question at this time. The AI service may not be properly configured.";
       }
     }
 

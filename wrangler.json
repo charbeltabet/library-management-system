@@ -17,6 +17,9 @@
 			"database_id": "23fd55b8-8852-4d3d-9c61-ad9c399cdb53"
 		}
 	],
+	"ai": {
+		"binding": "AI"
+	},
 	"assets": {
 		"directory": "./build/client"
 	},
